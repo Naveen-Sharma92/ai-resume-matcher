@@ -16,12 +16,21 @@ import { logger } from './logger.js';
 export const wakeWorker = () => {
   if (!env.WORKER_WAKE_URL) return;
 
+  // Hold the connection open through the platform's cold start. A short abort
+  // here is worse than useless: dropping the request can cancel the spin-up it
+  // was meant to trigger. Nothing awaits this, so a slow ping costs the caller
+  // nothing - the timeout exists only so the socket cannot leak.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 3000);
+  const timer = setTimeout(() => controller.abort(), 90_000);
+  const startedAt = Date.now();
 
   fetch(env.WORKER_WAKE_URL, { method: 'GET', signal: controller.signal })
-    .then((res) => logger.debug({ status: res.status }, 'worker wake ping sent'))
-    .catch((err) => logger.debug({ err: err.message }, 'worker wake ping failed (harmless)'))
+    .then((res) =>
+      logger.info({ status: res.status, ms: Date.now() - startedAt }, 'worker wake ping ok')
+    )
+    .catch((err) =>
+      logger.warn({ err: err.message, ms: Date.now() - startedAt }, 'worker wake ping failed')
+    )
     .finally(() => clearTimeout(timer));
 };
 
