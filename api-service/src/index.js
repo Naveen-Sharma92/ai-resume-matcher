@@ -31,17 +31,34 @@ const start = async () => {
 
 const shutdown = async (signal) => {
   logger.info({ signal }, 'shutting down');
-  const timer = setTimeout(() => process.exit(1), 10_000).unref();
+
+  // A platform SIGTERM is a normal event, so this must ALWAYS end in exit(0).
+  // Exiting non-zero here makes Render read a routine restart as a failed
+  // deploy and retry forever.
+  const failsafe = setTimeout(() => {
+    logger.warn('shutdown timed out - exiting anyway');
+    process.exit(0);
+  }, 10_000);
+  failsafe.unref();
+
   try {
-    if (server) await new Promise((resolve) => server.close(resolve));
+    if (server) {
+      const closed = new Promise((resolve) => server.close(resolve));
+      // Health checkers hold keep-alive sockets open, and server.close() waits
+      // for them: drop the idle ones now and the rest shortly after.
+      server.closeIdleConnections?.();
+      setTimeout(() => server.closeAllConnections?.(), 3000).unref();
+      await closed;
+    }
     await disconnectKafka();
     await closeRedis();
     await closeDB();
-    clearTimeout(timer);
-    process.exit(0);
+    logger.info('shutdown complete');
   } catch (err) {
     logger.error({ err }, 'error during shutdown');
-    process.exit(1);
+  } finally {
+    clearTimeout(failsafe);
+    process.exit(0);
   }
 };
 

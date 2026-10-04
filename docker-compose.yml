@@ -91,19 +91,20 @@ services:
     environment:
       S3_ENDPOINT: ${S3_ENDPOINT:-http://s3mock:9090}
       S3_BUCKET: ${S3_BUCKET:-resumes-dev}
+    # No template literals here on purpose: compose interpolates ${...} itself.
     command:
       - node
       - -e
       - |
-        const url = `${process.env.S3_ENDPOINT}/${process.env.S3_BUCKET}`;
+        const url = process.env.S3_ENDPOINT + '/' + process.env.S3_BUCKET;
         const wait = (ms) => new Promise((r) => setTimeout(r, ms));
         (async () => {
           for (let i = 0; i < 30; i += 1) {
             try {
               const res = await fetch(url, { method: 'PUT' });
-              console.log(`bucket ready (${res.status})`);
+              console.log('bucket ready (' + res.status + ')');
               return;
-            } catch {
+            } catch (err) {
               console.log('waiting for s3mock...');
               await wait(2000);
             }

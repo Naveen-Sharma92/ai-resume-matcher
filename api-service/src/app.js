@@ -32,6 +32,11 @@ app.use(requestContext);
 // Liveness sits outside the API prefix so uptime pingers stay dead simple.
 app.get('/healthz', liveness);
 
+// Platforms probe `/` to detect the open port; answering keeps the logs clean.
+app.get('/', (_req, res) =>
+  res.status(200).json({ service: 'api-service', status: 'ok', docs: `${API_PREFIX}/health/ready` })
+);
+
 app.use(`${API_PREFIX}/health`, healthRouter);
 app.use(`${API_PREFIX}/users`, userRouter);
 app.use(`${API_PREFIX}/matches`, matchRouter);
