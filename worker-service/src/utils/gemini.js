@@ -14,13 +14,32 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 
 class GeminiError extends Error {
-  constructor(message, { status, body } = {}) {
+  constructor(message, { status, body, permanent = false } = {}) {
     super(message);
     this.name = 'GeminiError';
     this.status = status;
     this.body = body;
+    // Set when retrying cannot possibly help, so the worker fails fast instead
+    // of spending its attempt budget.
+    this.permanent = permanent;
   }
 }
+
+/**
+ * Gemini returns 429 for two very different things:
+ *   - per-minute rate limiting, which backoff fixes
+ *   - the daily free-tier allowance, which backoff cannot fix until it resets
+ * Only the first is worth retrying.
+ */
+const DAILY_QUOTA_MARKERS = [
+  'free_tier_requests',
+  'PerDay',
+  'per day',
+  'GenerateRequestsPerDayPerProjectPerModel',
+];
+
+export const isDailyQuotaError = (status, body = '') =>
+  status === 429 && DAILY_QUOTA_MARKERS.some((marker) => String(body).includes(marker));
 
 async function callGemini(path, body, { timeoutMs = env.GEMINI_TIMEOUT_MS } = {}) {
   const url = `${env.GEMINI_BASE_URL}/${path}`;
@@ -44,6 +63,16 @@ async function callGemini(path, body, { timeoutMs = env.GEMINI_TIMEOUT_MS } = {}
       if (response.ok) return await response.json();
 
       const text = await response.text();
+
+      if (isDailyQuotaError(response.status, text)) {
+        throw new GeminiError(
+          `Gemini daily free-tier quota exhausted for ${env.GEMINI_CHAT_MODEL}. ` +
+            'It resets at midnight Pacific time, or switch GEMINI_CHAT_MODEL to a ' +
+            'model with a higher free-tier allowance.',
+          { status: response.status, body: text, permanent: true }
+        );
+      }
+
       lastError = new GeminiError(`Gemini ${response.status}: ${text.slice(0, 400)}`, {
         status: response.status,
         body: text,
@@ -52,6 +81,7 @@ async function callGemini(path, body, { timeoutMs = env.GEMINI_TIMEOUT_MS } = {}
       if (!RETRYABLE_STATUS.has(response.status)) throw lastError;
     } catch (err) {
       lastError = err instanceof GeminiError ? err : new GeminiError(err.message);
+      if (err.permanent) throw err;
       if (err.name === 'GeminiError' && err.status && !RETRYABLE_STATUS.has(err.status)) throw err;
     } finally {
       clearTimeout(timer);

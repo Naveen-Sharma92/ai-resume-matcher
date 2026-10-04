@@ -1,4 +1,9 @@
-import { fitDimensions, parseJsonLoose, GeminiError } from '../../src/utils/gemini.js';
+import {
+  fitDimensions,
+  parseJsonLoose,
+  GeminiError,
+  isDailyQuotaError,
+} from '../../src/utils/gemini.js';
 
 describe('fitDimensions', () => {
   it('passes a correctly sized vector through untouched', () => {
@@ -33,5 +38,43 @@ describe('parseJsonLoose', () => {
 
   it('throws a typed error on unparseable output', () => {
     expect(() => parseJsonLoose('no json at all')).toThrow(GeminiError);
+  });
+});
+
+describe('isDailyQuotaError', () => {
+  const dailyQuotaBody = JSON.stringify({
+    error: {
+      code: 429,
+      message:
+        'You exceeded your current quota. Quota exceeded for metric: ' +
+        'generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20',
+    },
+  });
+
+  it('recognises an exhausted daily free-tier allowance', () => {
+    expect(isDailyQuotaError(429, dailyQuotaBody)).toBe(true);
+  });
+
+  it('does NOT flag an ordinary per-minute rate limit, which backoff can fix', () => {
+    const perMinuteBody = JSON.stringify({
+      error: { code: 429, message: 'Resource has been exhausted (e.g. check quota).' },
+    });
+    expect(isDailyQuotaError(429, perMinuteBody)).toBe(false);
+  });
+
+  it('ignores non-429 responses entirely', () => {
+    expect(isDailyQuotaError(503, 'free_tier_requests')).toBe(false);
+    expect(isDailyQuotaError(500, '')).toBe(false);
+  });
+
+  it('tolerates a missing body', () => {
+    expect(isDailyQuotaError(429)).toBe(false);
+  });
+});
+
+describe('GeminiError', () => {
+  it('carries a permanent flag so the worker can skip pointless retries', () => {
+    expect(new GeminiError('x', { status: 429, permanent: true }).permanent).toBe(true);
+    expect(new GeminiError('x', { status: 429 }).permanent).toBe(false);
   });
 });

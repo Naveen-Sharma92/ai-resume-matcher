@@ -21,6 +21,7 @@ import { EMBED_TASK } from '../constants.js';
 /** Errors that will never succeed on a retry - fail the job immediately. */
 const isPermanent = (err) =>
   ['UnsupportedFileError', 'EmptyResumeError', 'NoSuchKey', 'ZodError'].includes(err.name) ||
+  // Set by the Gemini client when the daily free-tier allowance is gone.
   err.permanent === true;
 
 const stage = async ({ tenantId, matchId, name, message, metadata }) => {
