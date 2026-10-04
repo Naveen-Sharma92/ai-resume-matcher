@@ -1,0 +1,225 @@
+# Local development stack.
+#
+# Substitutes for the managed free tiers used in production:
+#   Supabase Postgres  -> pgvector/pgvector:pg16
+#   Upstash Redis      -> redis:7-alpine
+#   Aiven Kafka        -> Redpanda (Kafka API compatible, single broker)
+#
+# S3 and Gemini are NOT substituted: both have usable free tiers, and mocking
+# them locally would hide exactly the failures worth catching.
+#
+#   cp .env.sample .env && docker compose up --build
+
+name: ai-resume-matcher
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: resume_matcher
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d resume_matcher']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092
+      - --advertise-kafka-addr=INTERNAL://redpanda:9092,EXTERNAL://localhost:19092
+      - --check=false
+    ports:
+      - '19092:19092'
+      - '9644:9644'
+    healthcheck:
+      test: ['CMD-SHELL', 'rpk cluster health | grep -q "Healthy:.*true"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # S3-compatible storage for local dev, so running this stack needs no AWS
+  # account. Production uses real S3 - the only difference is S3_ENDPOINT.
+  # (MinIO would be the usual choice, but their community images now require
+  # authentication on both Docker Hub and quay.io.)
+  s3mock:
+    image: adobe/s3mock:latest
+    environment:
+      initialBuckets: resumes-dev
+      retainFilesOnExit: 'true'
+      root: /data
+    ports:
+      - '9090:9090'
+    volumes:
+      - s3data:/data
+
+  # adobe/s3mock ignores its initialBuckets env var on some tags, so create the
+  # bucket explicitly: an S3 CreateBucket is just a PUT on the bucket path.
+  # Reuses the api image, so there is no extra pull.
+  createbucket:
+    build:
+      context: .
+      dockerfile: api-service/Dockerfile
+    working_dir: /app
+    restart: 'no'
+    depends_on:
+      - s3mock
+    environment:
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://s3mock:9090}
+      S3_BUCKET: ${S3_BUCKET:-resumes-dev}
+    command:
+      - node
+      - -e
+      - |
+        const url = `${process.env.S3_ENDPOINT}/${process.env.S3_BUCKET}`;
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        (async () => {
+          for (let i = 0; i < 30; i += 1) {
+            try {
+              const res = await fetch(url, { method: 'PUT' });
+              console.log(`bucket ready (${res.status})`);
+              return;
+            } catch {
+              console.log('waiting for s3mock...');
+              await wait(2000);
+            }
+          }
+          process.exit(1);
+        })();
+
+  console:
+    image: redpandadata/console:v2.7.2
+    profiles: ['tools']
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - '8090:8080'
+    depends_on:
+      - redpanda
+
+  # Applies db/migrations in order, then seeds a demo tenant.
+  # Reuses the api image so there is nothing to install at runtime.
+  migrate:
+    build:
+      context: .
+      dockerfile: api-service/Dockerfile
+    working_dir: /app
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/resume_matcher
+      DATABASE_SSL: 'false'
+    command: ['node', 'scripts/migrate.js', '--seed']
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: api-service/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: 8000
+      LOG_LEVEL: debug
+      CORS_ORIGIN: http://localhost:5173
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/resume_matcher
+      DATABASE_SSL: 'false'
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET:-dev-access-secret-change-me}
+      ACCESS_TOKEN_EXPIRY: 15m
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-dev-refresh-secret-change-me}
+      REFRESH_TOKEN_EXPIRY: 7d
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_SSL: 'false'
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-local-dev}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-local-dev}
+      S3_BUCKET: ${S3_BUCKET:-resumes-dev}
+      # Unset this in production and the AWS SDK talks to real S3.
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://s3mock:9090}
+      # S3 mocks do not implement the SDK's newer flexible checksums; this is a
+      # local-only opt-out and is not set in production.
+      AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+      AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
+    ports:
+      - '8000:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      createbucket:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker-service/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      LOG_LEVEL: debug
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/resume_matcher
+      DATABASE_SSL: 'false'
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_GROUP_ID: match-worker-group
+      KAFKA_SSL: 'false'
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-local-dev}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-local-dev}
+      S3_BUCKET: ${S3_BUCKET:-resumes-dev}
+      # Unset this in production and the AWS SDK talks to real S3.
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://s3mock:9090}
+      # S3 mocks do not implement the SDK's newer flexible checksums; this is a
+      # local-only opt-out and is not set in production.
+      AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+      AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?set GEMINI_API_KEY in .env}
+      GEMINI_CHAT_MODEL: ${GEMINI_CHAT_MODEL:-gemini-3.8-flash}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
+      GEMINI_EMBEDDING_DIM: 768
+    ports:
+      - '8080:8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+volumes:
+  pgdata:
+  redisdata:
+  s3data:

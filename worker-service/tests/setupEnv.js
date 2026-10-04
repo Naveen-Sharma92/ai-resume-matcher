@@ -1,0 +1,15 @@
+process.env.NODE_ENV = 'test';
+process.env.LOG_LEVEL = 'silent';
+process.env.PORT = '8080';
+process.env.DATABASE_URL = 'postgres://postgres:postgres@localhost:5432/test';
+process.env.DATABASE_SSL = 'false';
+process.env.REDIS_URL = 'redis://localhost:6379';
+process.env.KAFKA_BROKERS = 'localhost:19092';
+process.env.KAFKA_SSL = 'false';
+process.env.AWS_REGION = 'ap-south-1';
+process.env.S3_BUCKET = 'test-bucket';
+process.env.GEMINI_API_KEY = 'test-key';
+process.env.GEMINI_CHAT_MODEL = 'gemini-3.8-flash';
+process.env.GEMINI_EMBEDDING_MODEL = 'gemini-embedding-2';
+process.env.GEMINI_EMBEDDING_DIM = '768';
+process.env.MAX_ATTEMPTS = '3';

@@ -1,0 +1,9 @@
+**/node_modules
+**/coverage
+**/dist
+**/build
+**/.env
+**/public/temp/*
+.git
+frontend
+docs

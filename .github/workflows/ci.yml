@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Check formatting
+        run: npm run lint
+
+      - name: Unit + API tests
+        run: npm test
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build api-service image
+        run: docker build -f api-service/Dockerfile -t arm-api:ci .
+
+      - name: Build worker-service image
+        run: docker build -f worker-service/Dockerfile -t arm-worker:ci .

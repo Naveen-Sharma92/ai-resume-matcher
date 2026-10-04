@@ -1,0 +1,117 @@
+# Render Blueprint.
+#
+# Note: Render's free plan has no Background Workers, so worker-service is
+# declared as a *web service* too - it runs the Kafka consumer and exposes
+# /healthz purely so the free plan will host it. Keep it awake with an external
+# pinger (see docs/DEPLOYMENT.md).
+#
+# Secrets are marked sync:false: set them in the Render dashboard, never here.
+
+services:
+  - type: web
+    name: ai-resume-matcher-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./api-service/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8000
+      - key: LOG_LEVEL
+        value: info
+      - key: CORS_ORIGIN
+        sync: false # https://<your-app>.vercel.app
+      - key: DATABASE_URL
+        sync: false # Supabase session pooler URI
+      - key: DATABASE_SSL
+        value: 'true'
+      - key: ACCESS_TOKEN_SECRET
+        generateValue: true
+      - key: REFRESH_TOKEN_SECRET
+        generateValue: true
+      - key: ACCESS_TOKEN_EXPIRY
+        value: 15m
+      - key: REFRESH_TOKEN_EXPIRY
+        value: 7d
+      - key: REDIS_URL
+        sync: false # rediss://default:<password>@<host>.upstash.io:6379
+      - key: KAFKA_BROKERS
+        sync: false # <service>-<project>.aivencloud.com:<port>
+      - key: KAFKA_SSL
+        value: 'true'
+      - key: KAFKA_SASL_MECHANISM
+        value: scram-sha-256
+      - key: KAFKA_USERNAME
+        sync: false
+      - key: KAFKA_PASSWORD
+        sync: false
+      - key: KAFKA_CA_CERT_B64
+        sync: false
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+
+  - type: web
+    name: ai-resume-matcher-worker
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./worker-service/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL
+        value: 'true'
+      - key: REDIS_URL
+        sync: false
+      - key: KAFKA_BROKERS
+        sync: false
+      - key: KAFKA_GROUP_ID
+        value: match-worker-group
+      - key: KAFKA_SSL
+        value: 'true'
+      - key: KAFKA_SASL_MECHANISM
+        value: scram-sha-256
+      - key: KAFKA_USERNAME
+        sync: false
+      - key: KAFKA_PASSWORD
+        sync: false
+      - key: KAFKA_CA_CERT_B64
+        sync: false
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_CHAT_MODEL
+        value: gemini-3.8-flash
+      - key: GEMINI_EMBEDDING_MODEL
+        value: gemini-embedding-001
+      - key: GEMINI_EMBEDDING_DIM
+        value: 768
+      - key: MAX_ATTEMPTS
+        value: 3

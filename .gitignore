@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.local
+*.log
+logs/
+coverage/
+dist/
+build/
+.DS_Store
+public/temp/*
+!public/temp/.gitkeep
+.vercel
+.idea/
+.vscode/
+*.pem

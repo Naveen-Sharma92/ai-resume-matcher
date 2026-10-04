@@ -1,0 +1,29 @@
+{
+  "name": "ai-resume-matcher",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI-powered job/resume matcher - Express microservices, Kafka, RAG over pgvector, Gemini",
+  "workspaces": [
+    "shared",
+    "api-service",
+    "worker-service"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev:api": "npm run dev --workspace api-service",
+    "dev:worker": "npm run dev --workspace worker-service",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "test": "npm run test --workspace api-service && npm run test --workspace worker-service",
+    "lint": "prettier --check \"**/*.{js,jsx,json,md}\"",
+    "format": "prettier --write \"**/*.{js,jsx,json,md}\"",
+    "migrate": "node scripts/migrate.js",
+    "compose:up": "docker compose up --build",
+    "compose:down": "docker compose down -v"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  }
+}

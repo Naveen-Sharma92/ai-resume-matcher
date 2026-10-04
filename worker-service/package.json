@@ -1,0 +1,32 @@
+{
+  "name": "worker-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Kafka consumer: resume parsing, Gemini embeddings, pgvector RAG retrieval and LLM scoring",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
+    "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\""
+  },
+  "dependencies": {
+    "@arm/shared": "*",
+    "@aws-sdk/client-s3": "^3.658.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "ioredis": "^5.4.1",
+    "kafkajs": "^2.2.4",
+    "mammoth": "^1.8.0",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.13.0",
+    "pino": "^9.4.0",
+    "uuid": "^10.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "jest": "^29.7.0"
+  }
+}
