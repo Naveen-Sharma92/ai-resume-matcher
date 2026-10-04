@@ -11,7 +11,7 @@ import connectDB, { closeDB } from './db/index.js';
 import { connectKafka, disconnectKafka } from './kafka/index.js';
 import { startResumeConsumer } from './consumers/resume.consumer.js';
 import { setConsumerRunning } from './workerState.js';
-import { closeRedis } from './utils/redis.js';
+import { connectRedis, closeRedis } from './utils/redis.js';
 import { logger } from './utils/logger.js';
 
 let server;
@@ -22,6 +22,7 @@ const start = async () => {
   );
 
   await connectDB();
+  await connectRedis().catch((err) => logger.warn({ err: err.message }, 'redis not ready at boot'));
   await connectKafka();
   await startResumeConsumer();
 

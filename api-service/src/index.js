@@ -9,13 +9,16 @@ import { env } from './envConfig.js';
 import { app } from './app.js';
 import connectDB, { closeDB } from './db/index.js';
 import { connectKafka, disconnectKafka, ensureTopics } from './kafka/index.js';
-import { closeRedis } from './utils/redis.js';
+import { connectRedis, closeRedis } from './utils/redis.js';
 import { logger } from './utils/logger.js';
 
 let server;
 
 const start = async () => {
   await connectDB();
+  // Redis is a cache and a rate limiter, not a hard dependency: log and carry
+  // on if it is slow or down, rather than refusing to serve traffic.
+  await connectRedis().catch((err) => logger.warn({ err: err.message }, 'redis not ready at boot'));
   await connectKafka();
   await ensureTopics();
 
