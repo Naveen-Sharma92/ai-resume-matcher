@@ -32,6 +32,10 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
 
+  // Optional: the worker's health URL. Set on free hosting where the worker
+  // sleeps when idle; leave empty anywhere the worker runs continuously.
+  WORKER_WAKE_URL: z.string().optional().default(''),
+
   KAFKA_CLIENT_ID: z.string().default('api-service'),
   KAFKA_BROKERS: z.string().min(1),
   KAFKA_SSL: boolish(false),

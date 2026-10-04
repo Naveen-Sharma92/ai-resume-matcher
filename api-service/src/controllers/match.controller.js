@@ -13,6 +13,7 @@ import { MatchResultModel } from '../models/matchResult.model.js';
 import { uploadFileToS3, removeLocalFile } from '../utils/s3.js';
 import { sha256File, contentHash } from '../utils/hash.js';
 import { publishEvent } from '../kafka/index.js';
+import { wakeWorker } from '../utils/wakeWorker.js';
 import { logger } from '../utils/logger.js';
 import {
   s3ResumeKey,
@@ -144,6 +145,9 @@ export const createMatch = asyncHandler(async (req, res) => {
       logger.error({ err, matchId: match.id }, 'kafka publish failed');
       throw new ApiError(503, 'Job queue is unavailable, please retry shortly');
     }
+
+    // The event is safely in Kafka now; nudge the worker in case it is asleep.
+    wakeWorker();
 
     return res.status(202).json(
       new ApiResponse(
